@@ -10,6 +10,9 @@
 ## Стек
 
 - Go
+- [urfave/cli](https://github.com/urfave/cli)
+- [golang.org/x/net/html](https://pkg.go.dev/golang.org/x/net/html)
+- `net/http`, `context`, `sync` — сеть и конкурентность
 
 ## Установка
 
@@ -18,12 +21,24 @@
 ```bash
 git clone https://github.com/e950753/go-project-316.git
 cd go-project-316
+make build
+make test
 ```
 
 ## Использование
 
-<!-- Добавьте примеры запуска и запись asciinema — именно это смотрит работодатель -->
+```bash
+# через make
+make run URL=https://example.com
+make run URL=https://example.com ARGS="--depth 2 --workers 8"
+ 
+# или напрямую
+bin/hexlet-go-crawler https://example.com
+bin/hexlet-go-crawler --depth 2 --workers 8 --rps 5 https://example.com
+```
 
+---
+https://asciinema.org/a/0BIrqSgDHikBukxG
 ---
 
 <details>
