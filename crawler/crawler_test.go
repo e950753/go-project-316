@@ -426,10 +426,10 @@ func TestJSONFormat(t *testing.T) {
 	}
 	mustKeys(t, raw, "root_url", "depth", "generated_at", "pages")
 	pg := raw["pages"].([]any)[0].(map[string]any)
-	mustKeys(t, pg, "url", "depth", "http_status", "status", "error", "seo", "broken_links", "assets", "discovered_at")
+	mustKeys(t, pg, "url", "depth", "http_status", "status", "seo", "broken_links", "assets", "discovered_at")
 	mustKeys(t, pg["seo"].(map[string]any), "has_title", "title", "has_description", "description", "has_h1")
 	mustKeys(t, pg["broken_links"].([]any)[0].(map[string]any), "url", "status_code", "error")
-	mustKeys(t, pg["assets"].([]any)[0].(map[string]any), "url", "type", "status_code", "size_bytes", "error")
+	mustKeys(t, pg["assets"].([]any)[0].(map[string]any), "url", "type", "status_code", "size_bytes")
 }
 
 func TestEmptyArraysAreNotNull(t *testing.T) {

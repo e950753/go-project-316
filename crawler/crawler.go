@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -149,6 +150,13 @@ func (c *crawler) run(ctx context.Context) Report {
 		level = next
 	}
 
+	sort.SliceStable(report.Pages, func(i, j int) bool {
+		if report.Pages[i].Depth != report.Pages[j].Depth {
+			return report.Pages[i].Depth < report.Pages[j].Depth
+		}
+		return report.Pages[i].URL < report.Pages[j].URL
+	})
+
 	report.GeneratedAt = time.Now()
 	return report
 }
@@ -186,8 +194,6 @@ func (c *crawler) processPage(ctx context.Context, t task) pageResult {
 	page := Page{
 		URL:          t.url,
 		Depth:        t.depth,
-		BrokenLinks:  []BrokenLink{},
-		Assets:       []Asset{},
 		DiscoveredAt: time.Now(),
 	}
 	base, err := url.Parse(t.url)
@@ -197,7 +203,7 @@ func (c *crawler) processPage(ctx context.Context, t task) pageResult {
 
 	var parsed *parsedPage
 	status, err := c.fetch(ctx, t.url, func(resp *http.Response) error {
-		if resp.StatusCode >= 400 || !isHTML(resp.Header.Get("Content-Type")) {
+		if resp.StatusCode >= 400 {
 			return nil
 		}
 		p, perr := parseHTML(io.LimitReader(resp.Body, maxBodyBytes), base)
@@ -252,13 +258,6 @@ func visitKey(raw string) string {
 	return u.String()
 }
 
-func isHTML(contentType string) bool {
-	if contentType == "" {
-		return true
-	}
-	return strings.Contains(strings.ToLower(contentType), "html")
-}
-
 // parallel запускает fn для 0..n-1, ограничивая параллелизм семафором.
 func (c *crawler) parallel(n int, fn func(i int)) {
 	var wg sync.WaitGroup
@@ -297,7 +296,21 @@ func (c *crawler) checkAssets(ctx context.Context, refs []assetRef) []Asset {
 	c.parallel(len(refs), func(i int) {
 		assets[i] = c.assets.do(refs[i].url, func() Asset { return c.fetchAsset(ctx, refs[i]) })
 	})
+	// Стабильный порядок: image, script, style; внутри типа — порядок в HTML.
+	sort.SliceStable(assets, func(i, j int) bool { return assetRank(assets[i].Type) < assetRank(assets[j].Type) })
 	return assets
+}
+
+func assetRank(typ string) int {
+	switch typ {
+	case "image":
+		return 0
+	case "script":
+		return 1
+	case "style":
+		return 2
+	}
+	return 3
 }
 
 func (c *crawler) fetchAsset(ctx context.Context, ref assetRef) Asset {

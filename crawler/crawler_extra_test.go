@@ -64,7 +64,6 @@ func TestGoldenReport(t *testing.T) {
     "depth": 0,
     "http_status": 200,
     "status": "ok",
-    "error": "",
     "seo": {
       "has_title": true,
       "title": "Example title",
@@ -73,7 +72,7 @@ func TestGoldenReport(t *testing.T) {
       "has_h1": true
     },
     "broken_links": [{"url": "https://example.com/missing", "status_code": 404, "error": "Not Found"}],
-    "assets": [{"url": "https://example.com/static/logo.png", "type": "image", "status_code": 200, "size_bytes": 12345, "error": ""}],
+    "assets": [{"url": "https://example.com/static/logo.png", "type": "image", "status_code": 200, "size_bytes": 12345}],
     "discovered_at": "2024-06-01T12:34:56Z"
   }]
 }`
@@ -137,11 +136,65 @@ func TestInvalidURLWithSpaceInHost(t *testing.T) {
 	}
 }
 
-func TestNonHTMLPageIsNotParsed(t *testing.T) {
-	s := newSite(map[string]spec{"http://site.test": {status: 200, ctype: "application/json", body: `{"x":"<a href='/y'>"}`}})
-	p := analyze(t, s, crawler.Options{URL: "http://site.test", Depth: 2}).Pages[0]
-	if p.Status != "ok" || p.SEO != (crawler.SEO{}) || len(p.BrokenLinks) != 0 || len(p.Assets) != 0 {
+// Любой успешный ответ разбирается как HTML (например, feed.xml с <title>).
+func TestXMLBodyIsParsedForSEO(t *testing.T) {
+	s := newSite(map[string]spec{"http://site.test": {status: 200, ctype: "application/xml",
+		body: `<rss><channel><title>Feed</title></channel></rss>`}})
+	p := analyze(t, s, crawler.Options{URL: "http://site.test", Depth: 1}).Pages[0]
+	if p.Status != "ok" || !p.SEO.HasTitle || p.SEO.Title != "Feed" || p.SEO.HasH1 {
 		t.Fatalf("unexpected page: %+v", p)
+	}
+}
+
+// Страница, которую не удалось скачать: assets и broken_links = null, error есть.
+func TestFailedPageHasNullArrays(t *testing.T) {
+	s := newSite(map[string]spec{"http://site.test": {err: errors.New("no such host")}})
+	data, err := crawler.Analyze(context.Background(), crawler.Options{URL: "http://site.test", Depth: 1, HTTPClient: &http.Client{Transport: s}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"assets":null`, `"broken_links":null`, `"error":"Get`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("missing %s in %s", want, data)
+		}
+	}
+}
+
+// Успешная страница: нет ключа error, массивы пустые, а не null.
+func TestOKPageOmitsEmptyError(t *testing.T) {
+	s := newSite(map[string]spec{"http://site.test": page("<p>x</p>")})
+	data, _ := crawler.Analyze(context.Background(), crawler.Options{URL: "http://site.test", Depth: 1, HTTPClient: &http.Client{Transport: s}})
+	if strings.Contains(string(data), `"error"`) {
+		t.Errorf("empty error must be omitted: %s", data)
+	}
+}
+
+// Порядок: страницы по (depth, url); ассеты по типу image, script, style.
+func TestDeterministicOrder(t *testing.T) {
+	s := newSite(map[string]spec{
+		"http://site.test": page(`<link rel="stylesheet" href="/s.css"><script src="/a.js"></script><img src="/i.png">
+			<a href="/z">z</a><a href="/b">b</a>`),
+		"http://site.test/z":     page("z"),
+		"http://site.test/b":     page("b"),
+		"http://site.test/s.css": {status: 200, ctype: "text/css"},
+		"http://site.test/a.js":  {status: 200, ctype: "text/javascript"},
+		"http://site.test/i.png": {status: 200, ctype: "image/png"},
+	})
+	rep := analyze(t, s, crawler.Options{URL: "http://site.test", Depth: 2})
+
+	var pages []string
+	for _, p := range rep.Pages {
+		pages = append(pages, p.URL)
+	}
+	if strings.Join(pages, ",") != "http://site.test,http://site.test/b,http://site.test/z" {
+		t.Errorf("pages order: %v", pages)
+	}
+	var types []string
+	for _, a := range rep.Pages[0].Assets {
+		types = append(types, a.Type)
+	}
+	if strings.Join(types, ",") != "image,script,style" {
+		t.Errorf("assets order: %v", types)
 	}
 }
 
