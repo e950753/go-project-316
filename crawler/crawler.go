@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -278,7 +277,7 @@ func (c *crawler) checkLinks(ctx context.Context, links []string) []BrokenLink {
 	results := make([]linkResult, len(links))
 	c.parallel(len(links), func(i int) {
 		results[i] = c.links.do(visitKey(links[i]), func() linkResult {
-			status, err := c.fetch(ctx, links[i], drain)
+			status, err := c.checkURL(ctx, links[i])
 			return newLinkResult(status, err)
 		})
 	})
@@ -288,9 +287,6 @@ func (c *crawler) checkLinks(ctx context.Context, links []string) []BrokenLink {
 		if r.Error != "" {
 			broken = append(broken, BrokenLink{URL: links[i], StatusCode: r.Status, Error: r.Error})
 		}
-	}
-	for i, r := range results {
-		fmt.Fprintf(os.Stderr, "DEBUG link=%q status=%d err=%q\n", links[i], r.Status, r.Error)
 	}
 	return broken
 }

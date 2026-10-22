@@ -14,6 +14,20 @@ func retryableStatus(code int) bool {
 // onResp вызывается только для итогового ответа (внутри таймаута запроса).
 // Возвращает последний полученный HTTP-статус (0 при сетевой ошибке) и ошибку.
 func (c *crawler) fetch(ctx context.Context, rawURL string, onResp func(*http.Response) error) (int, error) {
+	return c.fetchMethod(ctx, http.MethodGet, rawURL, onResp)
+}
+
+// checkURL проверяет доступность ссылки HEAD-запросом; если сервер
+// не поддерживает HEAD (405/501), повторяет проверку через GET.
+func (c *crawler) checkURL(ctx context.Context, rawURL string) (int, error) {
+	status, err := c.fetchMethod(ctx, http.MethodHead, rawURL, nil)
+	if err == nil && (status == http.StatusMethodNotAllowed || status == http.StatusNotImplemented) {
+		return c.fetch(ctx, rawURL, drain)
+	}
+	return status, err
+}
+
+func (c *crawler) fetchMethod(ctx context.Context, method, rawURL string, onResp func(*http.Response) error) (int, error) {
 	var status int
 	for attempt := 0; ; attempt++ {
 		if err := c.limiter.wait(ctx); err != nil {
@@ -25,7 +39,7 @@ func (c *crawler) fetch(ctx context.Context, rawURL string, onResp func(*http.Re
 			retry bool
 			err   error
 		)
-		status, retry, err = c.attempt(ctx, rawURL, final, onResp)
+		status, retry, err = c.attempt(ctx, method, rawURL, final, onResp)
 		if !retry || final || ctx.Err() != nil {
 			return status, err
 		}
@@ -36,11 +50,11 @@ func (c *crawler) fetch(ctx context.Context, rawURL string, onResp func(*http.Re
 	}
 }
 
-func (c *crawler) attempt(ctx context.Context, rawURL string, final bool, onResp func(*http.Response) error) (int, bool, error) {
+func (c *crawler) attempt(ctx context.Context, method, rawURL string, final bool, onResp func(*http.Response) error) (int, bool, error) {
 	rctx, cancel := context.WithTimeout(ctx, c.opts.Timeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(rctx, http.MethodGet, rawURL, nil)
+	req, err := http.NewRequestWithContext(rctx, method, rawURL, nil)
 	if err != nil {
 		return 0, false, err
 	}
